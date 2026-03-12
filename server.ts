@@ -57,7 +57,10 @@ db.exec(`
     referred_by INTEGER,
     last_login DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    kyc_status TEXT DEFAULT 'unverified'
+    kyc_status TEXT DEFAULT 'unverified',
+    referral_code TEXT UNIQUE,
+    last_bonus_claim DATETIME,
+    cashapp_tag TEXT
   );
 
   CREATE TABLE IF NOT EXISTS games (
@@ -201,7 +204,10 @@ db.exec(`
     odds_description TEXT,
     theme_images TEXT, -- JSON array of image URLs
     is_active INTEGER DEFAULT 1,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    win_probability REAL DEFAULT 0.25,
+    min_prize REAL DEFAULT 0,
+    max_prize REAL DEFAULT 100
   );
 
   CREATE TABLE IF NOT EXISTS ticket_purchases (
@@ -212,6 +218,8 @@ db.exec(`
     is_win INTEGER DEFAULT 0,
     win_amount REAL DEFAULT 0,
     reveal_data TEXT, -- JSON of what was revealed
+    cost_sc REAL NOT NULL DEFAULT 0,
+    result_data TEXT, -- JSON of the result
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(player_id) REFERENCES players(id),
     FOREIGN KEY(ticket_type_id) REFERENCES ticket_types(id)
@@ -291,7 +299,10 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     player_id INTEGER NOT NULL,
     amount_sc REAL NOT NULL,
-    method TEXT NOT NULL,
+    payout_amount REAL,
+    payment_method TEXT NOT NULL,
+    payment_details TEXT,
+    method TEXT,
     details TEXT,
     status TEXT DEFAULT 'pending', -- pending, approved, rejected, paid
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -525,6 +536,93 @@ const authenticate = (req: any, res: any, next: any) => {
 const isAdmin = (req: any, res: any, next: any) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   next();
+};
+
+// Rate Limiting Helper
+const rateLimiters = new Map<string, { count: number; resetTime: number }>();
+
+const checkRateLimit = (identifier: string, limit: number, windowMs: number = 60000): boolean => {
+  const now = Date.now();
+  const key = `${identifier}`;
+
+  if (!rateLimiters.has(key) || (rateLimiters.get(key)?.resetTime || 0) < now) {
+    rateLimiters.set(key, { count: 1, resetTime: now + windowMs });
+    return true;
+  }
+
+  const current = rateLimiters.get(key)!;
+  if (current.count < limit) {
+    current.count++;
+    return true;
+  }
+
+  return false;
+};
+
+const getRateLimitInfo = (identifier: string): { remaining: number; resetTime: number } => {
+  const key = `${identifier}`;
+  const limiter = rateLimiters.get(key);
+
+  if (!limiter) {
+    return { remaining: 60, resetTime: Date.now() + 60000 };
+  }
+
+  return {
+    remaining: Math.max(0, 60 - limiter.count),
+    resetTime: limiter.resetTime
+  };
+};
+
+// Validation Helper
+const validateInput = (data: any, schema: any): { valid: boolean; errors: string[] } => {
+  const errors: string[] = [];
+
+  Object.entries(schema).forEach(([field, rules]: [string, any]) => {
+    const value = data[field];
+
+    if (rules.required && (value === undefined || value === null || value === '')) {
+      errors.push(`${field} is required`);
+      return;
+    }
+
+    if (value === undefined || value === null || value === '') {
+      return; // Optional field not provided
+    }
+
+    if (rules.type === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      errors.push(`${field} must be a valid email`);
+    }
+
+    if (rules.type === 'number' && isNaN(value)) {
+      errors.push(`${field} must be a number`);
+    }
+
+    if (rules.type === 'string' && typeof value !== 'string') {
+      errors.push(`${field} must be a string`);
+    }
+
+    if (rules.min !== undefined && value < rules.min) {
+      errors.push(`${field} must be at least ${rules.min}`);
+    }
+
+    if (rules.max !== undefined && value > rules.max) {
+      errors.push(`${field} must be at most ${rules.max}`);
+    }
+
+    if (rules.minLength !== undefined && value.length < rules.minLength) {
+      errors.push(`${field} must be at least ${rules.minLength} characters`);
+    }
+
+    if (rules.maxLength !== undefined && value.length > rules.maxLength) {
+      errors.push(`${field} must be at most ${rules.maxLength} characters`);
+    }
+
+    if (rules.pattern && !rules.pattern.test(value)) {
+      errors.push(`${field} has invalid format`);
+    }
+  });
+
+  return { valid: errors.length === 0, errors };
 };
 
 // Admin Endpoints
@@ -891,8 +989,19 @@ app.get('/api/health', (req, res) => {
 // Auth Endpoints
 app.post('/api/auth/register', async (req, res) => {
   const { email, username, password, referralCode } = req.body;
-  
+
   try {
+    // Validate input
+    const validation = validateInput(req.body, {
+      email: { required: true, type: 'email' },
+      username: { required: true, type: 'string', minLength: 3, maxLength: 30 },
+      password: { required: true, type: 'string', minLength: 6, maxLength: 100 }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
     const password_hash = await bcrypt.hash(password, 12);
     const newReferralCode = username.toLowerCase() + Math.random().toString(36).substring(2, 6);
     
@@ -968,8 +1077,18 @@ app.post('/api/auth/register', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  
+
   try {
+    // Validate input
+    const validation = validateInput(req.body, {
+      email: { required: true, type: 'email' },
+      password: { required: true, type: 'string', minLength: 6 }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
     const user = db.prepare('SELECT * FROM players WHERE email = ?').get(email) as any;
     if (!user || !(await bcrypt.compare(password, user.password_hash))) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -1076,36 +1195,92 @@ app.get('/api/store/packages', authenticate, (req: any, res) => {
 });
 
 app.post('/api/store/purchase', authenticate, (req: any, res) => {
-  const { packId, paymentMethod } = req.body; // paymentMethod: 'cashapp' or 'googlepay'
-  
+  const { packId, paymentMethod, paymentToken } = req.body;
+  // paymentMethod: 'cashapp', 'googlepay', 'stripe', 'creditcard'
+
   try {
     const pack = db.prepare('SELECT * FROM coin_packages WHERE id = ?').get(packId) as any;
     if (!pack) return res.status(400).json({ error: 'Invalid pack' });
-    
-    // In a real app, we would verify payment here
-    
+
+    // Validate payment method is enabled
+    const settings = db.prepare('SELECT * FROM site_settings').all() as any[];
+    const settingsMap: any = {};
+    settings.forEach(s => settingsMap[s.key] = s.value);
+
+    const enabledMethods: any = {
+      'cashapp': settingsMap.enable_cashapp === 'true',
+      'googlepay': settingsMap.enable_googlepay === 'true',
+      'stripe': settingsMap.enable_stripe === 'true',
+      'creditcard': settingsMap.enable_creditcard === 'true'
+    };
+
+    if (!enabledMethods[paymentMethod]) {
+      return res.status(400).json({ error: `Payment method ${paymentMethod} is not enabled` });
+    }
+
+    // Verify payment based on method
+    let paymentVerified = false;
+    let transactionId = `txn_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    try {
+      if (paymentMethod === 'stripe' && paymentToken) {
+        // In production, verify Stripe token:
+        // const charge = await stripe.charges.create({ amount: pack.price * 100, currency: 'usd', source: paymentToken });
+        // transactionId = charge.id;
+        // For demo, we simulate successful payment
+        paymentVerified = true;
+        console.log(`[PAYMENT] Stripe payment simulated: ${transactionId}`);
+      } else if (paymentMethod === 'cashapp') {
+        // In production, call CashApp API to verify payment
+        // For demo, we simulate successful payment
+        paymentVerified = true;
+        console.log(`[PAYMENT] CashApp payment simulated: ${transactionId}`);
+      } else if (paymentMethod === 'googlepay') {
+        // In production, verify Google Pay token
+        // For demo, we simulate successful payment
+        paymentVerified = true;
+        console.log(`[PAYMENT] GooglePay payment simulated: ${transactionId}`);
+      } else if (paymentMethod === 'creditcard') {
+        // In production, use payment processor like Stripe
+        paymentVerified = true;
+        console.log(`[PAYMENT] Credit card payment simulated: ${transactionId}`);
+      }
+    } catch (paymentError: any) {
+      console.error(`[PAYMENT] ${paymentMethod} verification failed:`, paymentError);
+      return res.status(402).json({ error: `Payment verification failed: ${paymentError.message}` });
+    }
+
+    if (!paymentVerified) {
+      return res.status(402).json({ error: 'Payment verification failed' });
+    }
+
     const transaction = db.transaction(() => {
       // Update player balance
       db.prepare('UPDATE players SET gc_balance = gc_balance + ?, sc_balance = sc_balance + ? WHERE id = ?')
         .run(pack.gc_amount, pack.sc_amount, req.user.id);
-      
-      // Log transaction
+
+      // Log transaction with payment details
       db.prepare('INSERT INTO wallet_transactions (player_id, type, gc_amount, sc_amount, description) VALUES (?, ?, ?, ?, ?)')
-        .run(req.user.id, 'purchase', pack.gc_amount, pack.sc_amount, `Purchased ${pack.name} via ${paymentMethod}`);
+        .run(req.user.id, 'purchase', pack.gc_amount, pack.sc_amount, `${pack.name} (${paymentMethod}) - TXN: ${transactionId}`);
     });
-    
+
     transaction();
-    
+
     const user = db.prepare('SELECT gc_balance, sc_balance FROM players WHERE id = ?').get(req.user.id) as any;
-    
+
     // Notify via socket
     io.to(`user-${req.user.id}`).emit('balance-update', {
       gc_balance: user.gc_balance,
       sc_balance: user.sc_balance
     });
 
-    res.json({ success: true, balances: user });
+    // Add notification for admin
+    db.prepare('INSERT INTO admin_notifications (type, title, content) VALUES (?, ?, ?)')
+      .run('purchase', `Purchase: ${pack.name}`, `Player #${req.user.id} purchased ${pack.name} for $${pack.price} via ${paymentMethod}. Transaction: ${transactionId}`);
+
+    res.json({ success: true, balances: user, transactionId });
   } catch (error: any) {
+    console.error('[STORE] Purchase error:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1134,7 +1309,7 @@ app.post('/api/wallet/redeem', authenticate, (req: any, res) => {
         .run(amountSC, req.user.id);
         
       // Create Request
-      db.prepare('INSERT INTO redemption_requests (player_id, amount_sc, payout_amount, payment_method, payment_details, status) VALUES (?, ?, ?, ?, ?, ?)')
+      db.prepare('INSERT INTO redemptions (player_id, amount_sc, payout_amount, payment_method, payment_details, status) VALUES (?, ?, ?, ?, ?, ?)')
         .run(req.user.id, amountSC, payoutAmount, paymentMethod, paymentDetails, 'pending');
         
       // Log Transaction
@@ -1157,9 +1332,72 @@ app.post('/api/wallet/redeem', authenticate, (req: any, res) => {
 });
 
 // KYC Endpoints
+app.get('/api/user/kyc/status', authenticate, (req: any, res) => {
+  try {
+    const user = db.prepare('SELECT kyc_status, kyc_verified FROM players WHERE id = ?').get(req.user.id) as any;
+    const documents = db.prepare('SELECT id, document_type, status, created_at FROM kyc_documents WHERE player_id = ? ORDER BY created_at DESC').all(req.user.id);
+
+    res.json({
+      status: user.kyc_status,
+      verified: user.kyc_verified === 1,
+      documents
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/user/kyc/submit', authenticate, (req: any, res) => {
+  const { document_type, document_url } = req.body;
+  // document_type: 'id', 'proof_of_address', 'selfie'
+
+  try {
+    // Validate input
+    const validation = validateInput(req.body, {
+      document_type: { required: true, type: 'string' },
+      document_url: { required: true, type: 'string' }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
+    // In production, this would handle actual file uploads to cloud storage
+    // For now, we accept a document URL and store it in the database
+    const result = db.prepare('INSERT INTO kyc_documents (player_id, document_type, document_url, status) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, document_type, document_url, 'pending');
+
+    // Update player status to pending if this is their first submission
+    db.prepare("UPDATE players SET kyc_status = 'pending' WHERE id = ? AND kyc_status = 'unverified'")
+      .run(req.user.id);
+
+    // Create admin notification
+    db.prepare('INSERT INTO admin_notifications (type, source_id, title, content) VALUES (?, ?, ?, ?)')
+      .run('kyc_submission', result.lastInsertRowid, `KYC Document Submitted by User #${req.user.id}`, `Document type: ${document_type}. Please review and verify.`);
+
+    res.json({ success: true, documentId: result.lastInsertRowid });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/user/kyc/request', authenticate, (req: any, res) => {
   try {
+    // Legacy endpoint - redirects to submit
+    const { document_type = 'id', document_url = '' } = req.body;
+
+    if (document_url) {
+      // If document provided, submit it
+      const result = db.prepare('INSERT INTO kyc_documents (player_id, document_type, document_url, status) VALUES (?, ?, ?, ?)')
+        .run(req.user.id, document_type, document_url, 'pending');
+    }
+
     db.prepare("UPDATE players SET kyc_status = 'pending' WHERE id = ?").run(req.user.id);
+
+    // Create notification
+    db.prepare('INSERT INTO admin_notifications (type, title, content) VALUES (?, ?, ?)')
+      .run('kyc_submission', `KYC Request from User #${req.user.id}`, `User has requested KYC verification.`);
+
     res.json({ success: true });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -1259,16 +1497,16 @@ const seedTournaments = () => {
 
 const seedTicketTypes = () => {
   const types = [
-    { type: 'scratch', name: 'Neon Nights', description: 'Scratch to reveal neon prizes!', price_sc: 1.00, theme_images: JSON.stringify(['https://picsum.photos/seed/neon/800/600']) },
-    { type: 'scratch', name: 'Golden Galaxy', description: 'The universe is full of gold!', price_sc: 5.00, theme_images: JSON.stringify(['https://picsum.photos/seed/galaxy/800/600']) },
-    { type: 'pulltab', name: 'Lucky Leprechaun', description: 'Pull the tabs for the pot of gold!', price_sc: 1.00, theme_images: JSON.stringify(['https://picsum.photos/seed/leprechaun/800/600']) },
-    { type: 'pulltab', name: 'Cherry Blast', description: 'Classic fruit machine pull tabs.', price_sc: 2.00, theme_images: JSON.stringify(['https://picsum.photos/seed/cherry/800/600']) },
+    { type: 'scratch', name: 'Neon Nights', description: 'Scratch to reveal neon prizes!', price_sc: 1.00, top_prize_sc: 50, total_tickets: 1000, remaining_tickets: 1000, win_probability: 0.25, min_prize: 0, max_prize: 50, theme_images: JSON.stringify(['https://picsum.photos/seed/neon/800/600']) },
+    { type: 'scratch', name: 'Golden Galaxy', description: 'The universe is full of gold!', price_sc: 5.00, top_prize_sc: 250, total_tickets: 500, remaining_tickets: 500, win_probability: 0.30, min_prize: 0, max_prize: 250, theme_images: JSON.stringify(['https://picsum.photos/seed/galaxy/800/600']) },
+    { type: 'pulltab', name: 'Lucky Leprechaun', description: 'Pull the tabs for the pot of gold!', price_sc: 1.00, top_prize_sc: 100, total_tickets: 2000, remaining_tickets: 2000, win_probability: 0.20, min_prize: 0, max_prize: 100, theme_images: JSON.stringify(['https://picsum.photos/seed/leprechaun/800/600']) },
+    { type: 'pulltab', name: 'Cherry Blast', description: 'Classic fruit machine pull tabs.', price_sc: 2.00, top_prize_sc: 200, total_tickets: 1500, remaining_tickets: 1500, win_probability: 0.25, min_prize: 0, max_prize: 200, theme_images: JSON.stringify(['https://picsum.photos/seed/cherry/800/600']) },
   ];
 
-  const insert = db.prepare('INSERT OR IGNORE INTO ticket_types (type, name, description, price_sc, theme_images) VALUES (?, ?, ?, ?, ?)');
+  const insert = db.prepare('INSERT OR IGNORE INTO ticket_types (type, name, description, price_sc, top_prize_sc, total_tickets, remaining_tickets, win_probability, min_prize, max_prize, theme_images) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const count = db.prepare('SELECT COUNT(*) as count FROM ticket_types').get() as any;
   if (count.count === 0) {
-    types.forEach(t => insert.run(t.type, t.name, t.description, t.price_sc, t.theme_images));
+    types.forEach(t => insert.run(t.type, t.name, t.description, t.price_sc, t.top_prize_sc, t.total_tickets, t.remaining_tickets, t.win_probability, t.min_prize, t.max_prize, t.theme_images));
     console.log('Ticket types seeded');
   }
 };
@@ -1474,8 +1712,29 @@ app.get('/api/games', async (req, res) => {
 
 app.post('/api/games/slots/spin', authenticate, (req: any, res) => {
   const { gameId, betAmount, currency } = req.body; // currency: 'gc' or 'sc'
-  
+
   try {
+    // Validate input
+    const validation = validateInput(req.body, {
+      gameId: { required: true, type: 'number', min: 1 },
+      betAmount: { required: true, type: 'number', min: 0.01, max: 10000 },
+      currency: { required: true, type: 'string' }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
+    // Rate limiting: 60 spins per minute per user
+    if (!checkRateLimit(`slots_${req.user.id}`, 60, 60000)) {
+      const info = getRateLimitInfo(`slots_${req.user.id}`);
+      return res.status(429).json({
+        error: 'Rate limit exceeded. Max 60 spins per minute.',
+        remaining: info.remaining,
+        resetTime: info.resetTime
+      });
+    }
+
     const user = db.prepare('SELECT gc_balance, sc_balance FROM players WHERE id = ?').get(req.user.id) as any;
     const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as any;
     
@@ -1547,8 +1806,31 @@ app.post('/api/games/slots/spin', authenticate, (req: any, res) => {
 
 app.post('/api/games/dice/roll', authenticate, (req: any, res) => {
   const { gameId, betAmount, currency, target, type } = req.body; // type: 'over' or 'under'
-  
+
   try {
+    // Validate input
+    const validation = validateInput(req.body, {
+      gameId: { required: true, type: 'number', min: 1 },
+      betAmount: { required: true, type: 'number', min: 0.01, max: 10000 },
+      currency: { required: true, type: 'string' },
+      target: { required: true, type: 'number', min: 0, max: 100 },
+      type: { required: true, type: 'string' }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
+    // Rate limiting: 60 rolls per minute per user
+    if (!checkRateLimit(`dice_${req.user.id}`, 60, 60000)) {
+      const info = getRateLimitInfo(`dice_${req.user.id}`);
+      return res.status(429).json({
+        error: 'Rate limit exceeded. Max 60 rolls per minute.',
+        remaining: info.remaining,
+        resetTime: info.resetTime
+      });
+    }
+
     const user = db.prepare('SELECT gc_balance, sc_balance FROM players WHERE id = ?').get(req.user.id) as any;
     const game = db.prepare('SELECT * FROM games WHERE id = ?').get(gameId) as any;
     
@@ -1938,8 +2220,8 @@ app.get('/api/admin/users', authenticate, isAdmin, (req: any, res) => {
 app.get('/api/admin/redemptions', authenticate, isAdmin, (req: any, res) => {
   try {
     const requests = db.prepare(`
-      SELECT r.*, p.username, p.email 
-      FROM redemption_requests r
+      SELECT r.*, p.username, p.email
+      FROM redemptions r
       JOIN players p ON r.player_id = p.id
       ORDER BY r.created_at DESC
     `).all();
@@ -1954,15 +2236,15 @@ app.post('/api/admin/redemptions/process', authenticate, isAdmin, (req: any, res
   const { requestId, status } = req.body; // status: 'paid', 'rejected'
   
   try {
-    const request = db.prepare('SELECT * FROM redemption_requests WHERE id = ?').get(requestId) as any;
+    const request = db.prepare('SELECT * FROM redemptions WHERE id = ?').get(requestId) as any;
     if (!request) return res.status(404).json({ error: 'Request not found' });
     
     if (status === 'rejected') {
       // Refund SC
       db.prepare('UPDATE players SET sc_balance = sc_balance + ? WHERE id = ?').run(request.amount_sc, request.player_id);
-      db.prepare("UPDATE redemption_requests SET status = 'rejected', processed_at = CURRENT_TIMESTAMP WHERE id = ?").run(requestId);
+      db.prepare("UPDATE redemptions SET status = 'rejected', processed_at = CURRENT_TIMESTAMP WHERE id = ?").run(requestId);
     } else if (status === 'paid') {
-      db.prepare("UPDATE redemption_requests SET status = 'paid', processed_at = CURRENT_TIMESTAMP WHERE id = ?").run(requestId);
+      db.prepare("UPDATE redemptions SET status = 'paid', processed_at = CURRENT_TIMESTAMP WHERE id = ?").run(requestId);
     }
     
     res.json({ success: true });
@@ -2164,11 +2446,20 @@ app.get('/api/tickets/active', (req, res) => {
 
 app.post('/api/tickets/purchase', authenticate, (req: any, res) => {
   const { ticketTypeId } = req.body;
-  
+
   try {
+    // Validate input
+    const validation = validateInput(req.body, {
+      ticketTypeId: { required: true, type: 'number', min: 1 }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
     const user = db.prepare('SELECT sc_balance FROM players WHERE id = ?').get(req.user.id) as any;
     const ticketType = db.prepare('SELECT * FROM ticket_types WHERE id = ? AND is_active = 1').get(ticketTypeId) as any;
-    
+
     if (!ticketType) return res.status(404).json({ error: 'Ticket type not found or inactive' });
     if (user.sc_balance < ticketType.price_sc) return res.status(400).json({ error: 'Insufficient SC balance' });
 
