@@ -34,9 +34,10 @@ export const BonusManager: React.FC = () => {
     try {
       const response = await fetch('/api/admin/bonuses');
       const data = await response.json();
-      setBonuses(data.bonuses);
+      setBonuses(data.bonuses || []);
     } catch (error) {
       console.error('Error fetching bonuses:', error);
+      setBonuses([]);
     } finally {
       setLoading(false);
     }
