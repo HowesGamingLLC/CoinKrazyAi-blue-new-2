@@ -443,6 +443,81 @@ db.exec(`
   );
 `);
 
+// Database Migrations - Add missing columns to existing tables
+const runMigrations = () => {
+  try {
+    // Add missing columns to players table if they don't exist
+    const playerColumns = db.prepare("PRAGMA table_info(players)").all() as any[];
+    const playerColumnNames = playerColumns.map(col => col.name);
+
+    if (!playerColumnNames.includes('referral_code')) {
+      db.exec('ALTER TABLE players ADD COLUMN referral_code TEXT UNIQUE');
+      console.log('✓ Added referral_code column to players');
+    }
+    if (!playerColumnNames.includes('last_bonus_claim')) {
+      db.exec('ALTER TABLE players ADD COLUMN last_bonus_claim DATETIME');
+      console.log('✓ Added last_bonus_claim column to players');
+    }
+    if (!playerColumnNames.includes('cashapp_tag')) {
+      db.exec('ALTER TABLE players ADD COLUMN cashapp_tag TEXT');
+      console.log('✓ Added cashapp_tag column to players');
+    }
+
+    // Add missing columns to ticket_types table if they don't exist
+    const ticketTypeColumns = db.prepare("PRAGMA table_info(ticket_types)").all() as any[];
+    const ticketTypeColumnNames = ticketTypeColumns.map(col => col.name);
+
+    if (!ticketTypeColumnNames.includes('win_probability')) {
+      db.exec('ALTER TABLE ticket_types ADD COLUMN win_probability REAL DEFAULT 0.25');
+      console.log('✓ Added win_probability column to ticket_types');
+    }
+    if (!ticketTypeColumnNames.includes('min_prize')) {
+      db.exec('ALTER TABLE ticket_types ADD COLUMN min_prize REAL DEFAULT 0');
+      console.log('✓ Added min_prize column to ticket_types');
+    }
+    if (!ticketTypeColumnNames.includes('max_prize')) {
+      db.exec('ALTER TABLE ticket_types ADD COLUMN max_prize REAL DEFAULT 100');
+      console.log('✓ Added max_prize column to ticket_types');
+    }
+
+    // Add missing columns to ticket_purchases table if they don't exist
+    const ticketPurchaseColumns = db.prepare("PRAGMA table_info(ticket_purchases)").all() as any[];
+    const ticketPurchaseColumnNames = ticketPurchaseColumns.map(col => col.name);
+
+    if (!ticketPurchaseColumnNames.includes('cost_sc')) {
+      db.exec('ALTER TABLE ticket_purchases ADD COLUMN cost_sc REAL NOT NULL DEFAULT 0');
+      console.log('✓ Added cost_sc column to ticket_purchases');
+    }
+    if (!ticketPurchaseColumnNames.includes('result_data')) {
+      db.exec('ALTER TABLE ticket_purchases ADD COLUMN result_data TEXT');
+      console.log('✓ Added result_data column to ticket_purchases');
+    }
+
+    // Add missing columns to redemptions table if they don't exist
+    const redemptionColumns = db.prepare("PRAGMA table_info(redemptions)").all() as any[];
+    const redemptionColumnNames = redemptionColumns.map(col => col.name);
+
+    if (!redemptionColumnNames.includes('payout_amount')) {
+      db.exec('ALTER TABLE redemptions ADD COLUMN payout_amount REAL');
+      console.log('✓ Added payout_amount column to redemptions');
+    }
+    if (!redemptionColumnNames.includes('payment_method')) {
+      db.exec('ALTER TABLE redemptions ADD COLUMN payment_method TEXT');
+      console.log('✓ Added payment_method column to redemptions');
+    }
+    if (!redemptionColumnNames.includes('payment_details')) {
+      db.exec('ALTER TABLE redemptions ADD COLUMN payment_details TEXT');
+      console.log('✓ Added payment_details column to redemptions');
+    }
+
+    console.log('✓ All database migrations completed');
+  } catch (error: any) {
+    console.error('Migration error (may be benign if columns already exist):', error.message);
+  }
+};
+
+runMigrations();
+
 // Initialize Settings
 const initSettings = () => {
   const defaultSettings = {
@@ -1947,30 +2022,116 @@ app.get('/api/auth/social/url/:platform', authenticate, (req: any, res) => {
 
 app.get('/auth/social/callback/:platform', async (req, res) => {
   const { platform } = req.params;
-  const { code } = req.query;
-  
-  // In a real app, we would exchange the code for a token here
-  // For this demo, we'll just simulate success and close the popup
-  
-  res.send(`
-    <html>
-      <body>
-        <script>
-          if (window.opener) {
-            window.opener.postMessage({ 
-              type: 'OAUTH_AUTH_SUCCESS', 
-              platform: '${platform}',
-              username: 'SocialUser_${Math.floor(Math.random() * 1000)}'
-            }, '*');
-            window.close();
-          } else {
-            window.location.href = '/profile';
-          }
-        </script>
-        <p>Authentication successful for ${platform}. This window should close automatically.</p>
-      </body>
-    </html>
-  `);
+  const { code, state, error } = req.query;
+
+  try {
+    if (error) {
+      return res.send(`
+        <html>
+          <body>
+            <script>
+              if (window.opener) {
+                window.opener.postMessage({
+                  type: 'OAUTH_AUTH_ERROR',
+                  platform: '${platform}',
+                  error: '${error}'
+                }, '*');
+                window.close();
+              } else {
+                window.location.href = '/';
+              }
+            </script>
+            <p>Authentication failed: ${error}. This window should close automatically.</p>
+          </body>
+        </html>
+      `);
+    }
+
+    if (!code) {
+      return res.status(400).send('Missing authorization code');
+    }
+
+    // In production, exchange the code for an access token
+    // This requires making an API call to the OAuth provider
+    // For demo purposes, we simulate the token exchange
+
+    let accessToken = `token_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    let platformUsername = `user_${Math.floor(Math.random() * 100000)}`;
+    let platformEmail = `${platformUsername}@${platform}.example`;
+
+    // Simulate different platforms' responses
+    switch(platform) {
+      case 'google':
+        // In production: POST /token with code to https://oauth2.googleapis.com/token
+        platformUsername = `google_${Math.floor(Math.random() * 1000000)}`;
+        break;
+      case 'github':
+        // In production: POST /login/oauth/access_token with code
+        platformUsername = `github_${Math.floor(Math.random() * 1000000)}`;
+        break;
+      case 'facebook':
+        // In production: GET /me?access_token=TOKEN
+        platformUsername = `facebook_${Math.floor(Math.random() * 1000000)}`;
+        break;
+      case 'twitter':
+        // In production: POST /2/oauth2/token with code
+        platformUsername = `twitter_${Math.floor(Math.random() * 1000000)}`;
+        break;
+      case 'instagram':
+        // In production: GET /me?fields=username,email&access_token=TOKEN
+        platformUsername = `instagram_${Math.floor(Math.random() * 1000000)}`;
+        break;
+      case 'tiktok':
+        // In production: POST /v1/oauth/token/ with code
+        platformUsername = `tiktok_${Math.floor(Math.random() * 1000000)}`;
+        break;
+    }
+
+    // Send success message to parent window
+    res.send(`
+      <html>
+        <body>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({
+                type: 'OAUTH_AUTH_SUCCESS',
+                platform: '${platform}',
+                accessToken: '${accessToken}',
+                username: '${platformUsername}',
+                email: '${platformEmail}',
+                code: '${code}'
+              }, '*');
+              window.close();
+            } else {
+              window.location.href = '/profile';
+            }
+          </script>
+          <p>Authentication successful for ${platform}. This window should close automatically.</p>
+        </body>
+      </html>
+    `);
+  } catch (error: any) {
+    console.error(`OAuth callback error for ${platform}:`, error);
+    res.status(500).send(`
+      <html>
+        <body>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({
+                type: 'OAUTH_AUTH_ERROR',
+                platform: '${platform}',
+                error: 'Server error during authentication'
+              }, '*');
+              window.close();
+            } else {
+              window.location.href = '/';
+            }
+          </script>
+          <p>An error occurred during authentication. This window should close automatically.</p>
+        </body>
+      </html>
+    `);
+  }
 });
 
 // Friend Management Endpoints
@@ -2605,15 +2766,95 @@ app.get('/api/user/saved-wins', authenticate, (req: any, res) => {
 
 // Social & Referral Endpoints
 app.post('/api/user/social/connect', authenticate, (req: any, res) => {
-  const { platform, platform_username } = req.body;
-  
+  const { platform, platform_username, accessToken } = req.body;
+
   try {
-    db.prepare(`
-      INSERT OR REPLACE INTO social_links (player_id, platform, platform_username)
-      VALUES (?, ?, ?)
-    `).run(req.user.id, platform, platform_username);
-    
-    res.json({ success: true });
+    // Validate input
+    const validation = validateInput(req.body, {
+      platform: { required: true, type: 'string' },
+      platform_username: { required: true, type: 'string', minLength: 1 }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
+    // Supported platforms
+    const supportedPlatforms = ['facebook', 'twitter', 'instagram', 'tiktok', 'google', 'github'];
+    if (!supportedPlatforms.includes(platform)) {
+      return res.status(400).json({ error: `Platform ${platform} is not supported` });
+    }
+
+    // Check if this social link is already connected to another account
+    const existingLink = db.prepare('SELECT player_id FROM social_links WHERE platform = ? AND platform_username = ? AND player_id != ?')
+      .get(platform, platform_username, req.user.id);
+
+    if (existingLink) {
+      return res.status(400).json({ error: `This ${platform} account is already connected to another player account` });
+    }
+
+    const transaction = db.transaction(() => {
+      // Insert or replace the social link
+      db.prepare(`
+        INSERT OR REPLACE INTO social_links (player_id, platform, platform_username, access_token, created_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `).run(req.user.id, platform, platform_username, accessToken || null);
+
+      // Log the activity
+      db.prepare('INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)')
+        .run(req.user.id, 'social_connect', `Connected ${platform} account: ${platform_username}`);
+
+      // Create admin notification for successful OAuth
+      db.prepare('INSERT INTO admin_notifications (type, title, content) VALUES (?, ?, ?)')
+        .run('social_campaign', `Player #${req.user.id} Connected ${platform}`, `User connected their ${platform} account (${platform_username})`);
+    });
+
+    transaction();
+
+    res.json({ success: true, message: `Successfully connected ${platform} account` });
+  } catch (error: any) {
+    console.error(`Social connect error:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get connected social accounts
+app.get('/api/user/social/links', authenticate, (req: any, res) => {
+  try {
+    const links = db.prepare('SELECT platform, platform_username, created_at FROM social_links WHERE player_id = ?')
+      .all(req.user.id);
+
+    res.json({ links });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Disconnect social account
+app.post('/api/user/social/disconnect', authenticate, (req: any, res) => {
+  const { platform } = req.body;
+
+  try {
+    const validation = validateInput(req.body, {
+      platform: { required: true, type: 'string' }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
+    const result = db.prepare('DELETE FROM social_links WHERE player_id = ? AND platform = ?')
+      .run(req.user.id, platform);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: `No ${platform} account connected` });
+    }
+
+    // Log the activity
+    db.prepare('INSERT INTO activity_logs (user_id, action, details) VALUES (?, ?, ?)')
+      .run(req.user.id, 'social_disconnect', `Disconnected ${platform} account`);
+
+    res.json({ success: true, message: `Successfully disconnected ${platform} account` });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
