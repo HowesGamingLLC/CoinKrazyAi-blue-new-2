@@ -607,7 +607,7 @@ export default function AdminPanel() {
           </CardHeader>
           <CardContent>
             {isEditingPackage ? (
-              <form 
+              <form
                 onSubmit={(e) => {
                   e.preventDefault();
                   const formData = new FormData(e.currentTarget);
@@ -620,103 +620,168 @@ export default function AdminPanel() {
                     is_featured: formData.get('is_featured') === 'on'
                   });
                 }}
-                className="space-y-4 max-w-md"
+                className="space-y-4 max-w-2xl"
               >
                 <div>
-                  <label className="text-sm font-medium text-slate-400">Package Name</label>
-                  <input 
-                    name="name" 
-                    defaultValue={editingPackage?.name} 
-                    required 
+                  <label className="text-sm font-bold text-slate-400 uppercase tracking-wider">Package Name</label>
+                  <input
+                    name="name"
+                    defaultValue={editingPackage?.name}
+                    required
                     className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white"
                   />
                 </div>
+
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="text-sm font-medium text-slate-400">Price ($)</label>
-                    <input 
-                      name="price" 
-                      type="number" 
-                      step="0.01" 
-                      defaultValue={editingPackage?.price} 
-                      required 
+                    <label className="text-sm font-bold text-slate-400 uppercase tracking-wider">Price ($)</label>
+                    <input
+                      name="price"
+                      type="number"
+                      step="0.01"
+                      defaultValue={editingPackage?.price}
+                      required
                       className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-slate-400">GC Amount</label>
-                    <input 
-                      name="gc_amount" 
-                      type="number" 
-                      defaultValue={editingPackage?.gc_amount} 
-                      required 
+                    <label className="text-sm font-bold text-slate-400 uppercase tracking-wider">Gold Coins (GC)</label>
+                    <input
+                      name="gc_amount"
+                      type="number"
+                      defaultValue={editingPackage?.gc_amount}
+                      required
                       className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white"
                     />
                   </div>
                   <div>
-                    <label className="text-sm font-medium text-slate-400">SC Amount</label>
-                    <input 
-                      name="sc_amount" 
-                      type="number" 
-                      step="0.01" 
-                      defaultValue={editingPackage?.sc_amount} 
-                      required 
+                    <label className="text-sm font-bold text-slate-400 uppercase tracking-wider">Sweeps Coins (SC)</label>
+                    <input
+                      name="sc_amount"
+                      type="number"
+                      step="0.01"
+                      defaultValue={editingPackage?.sc_amount}
+                      required
                       className="w-full bg-slate-900 border border-white/10 rounded-lg px-3 py-2 text-white"
                     />
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="checkbox" 
-                    name="is_featured" 
-                    defaultChecked={editingPackage?.is_featured} 
+
+                <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-lg space-y-2">
+                  <p className="text-sm font-bold text-emerald-400">SC Bonus Calculation</p>
+                  <div className="text-sm text-slate-300 space-y-1">
+                    <div>Base SC: <span className="font-bold">{editingPackage?.sc_amount || 0}</span></div>
+                    <div>FREE SC Bonus (= GC): <span className="font-bold text-emerald-400">+{editingPackage?.gc_amount || 0}</span></div>
+                    <div className="pt-2 border-t border-emerald-500/20">
+                      Total SC Value: <span className="font-bold text-emerald-400">{(editingPackage?.sc_amount || 0) + (editingPackage?.gc_amount || 0)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3 p-3 bg-slate-900 rounded-lg border border-white/5">
+                  <input
+                    type="checkbox"
+                    name="is_featured"
+                    defaultChecked={editingPackage?.is_featured}
                     id="is_featured"
+                    className="w-4 h-4"
                   />
-                  <label htmlFor="is_featured" className="text-sm text-slate-400">Featured Package</label>
+                  <label htmlFor="is_featured" className="text-sm font-medium text-slate-300">Make this the Featured Package</label>
                 </div>
-                <Button type="submit" disabled={savePackageMutation.isPending}>
-                  {savePackageMutation.isPending ? 'Saving...' : 'Save Package'}
-                </Button>
+
+                <div className="flex gap-2">
+                  <Button
+                    type="submit"
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700"
+                    disabled={savePackageMutation.isPending}
+                  >
+                    {savePackageMutation.isPending ? 'Saving...' : 'Save Package'}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => { setIsEditingPackage(false); setEditingPackage(null); }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </form>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {packagesData?.packages?.map((p: any) => (
-                  <div key={p.id} className="p-4 bg-slate-900 rounded-xl border border-white/5 relative group">
-                    <div className="flex justify-between items-start mb-2">
-                      <h4 className="font-bold text-white">{p.name}</h4>
-                      <span className="text-xs font-mono text-slate-500">{p.id}</span>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {packagesData?.packages?.map((p: any) => {
+                  const scBonus = p.gc_amount;
+                  const totalSC = p.sc_amount + scBonus;
+                  const valuePerDollar = totalSC / p.price;
+                  return (
+                    <div key={p.id} className="p-6 bg-gradient-to-br from-slate-800 to-slate-900 rounded-xl border border-white/10 hover:border-blue-500/30 transition-all">
+                      <div className="flex justify-between items-start mb-3">
+                        <h4 className="font-bold text-white text-lg">{p.name}</h4>
+                        {p.is_featured === 1 && (
+                          <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-1 rounded-full">FEATURED</span>
+                        )}
+                      </div>
+
+                      <div className="space-y-2 mb-4 text-sm">
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-400">Price:</span>
+                          <span className="font-bold text-lg text-white">${p.price}</span>
+                        </div>
+
+                        <div className="border-t border-white/5 pt-3 space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Gold Coins:</span>
+                            <span className="font-bold text-yellow-500">{p.gc_amount.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-slate-400">Sweeps Coins:</span>
+                            <span className="font-bold text-emerald-500">{p.sc_amount}</span>
+                          </div>
+                          <div className="flex justify-between items-center p-2 bg-emerald-500/10 rounded border border-emerald-500/20">
+                            <span className="text-slate-300 text-xs">FREE SC Bonus:</span>
+                            <span className="font-black text-emerald-400">+{scBonus}</span>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-white/5 pt-3">
+                          <div className="flex justify-between">
+                            <span className="text-slate-400 text-xs">Total SC Value:</span>
+                            <span className="font-bold text-emerald-400 text-sm">{totalSC} SC</span>
+                          </div>
+                          <div className="flex justify-between mt-1">
+                            <span className="text-slate-500 text-[10px]">Value per $:</span>
+                            <span className="text-slate-300 text-[10px]">{valuePerDollar.toFixed(1)} SC/$</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="flex-1 text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                          onClick={() => { setEditingPackage(p); setIsEditingPackage(true); }}
+                        >
+                          <Edit2 className="w-3 h-3 mr-1" />
+                          Edit
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                          onClick={() => {
+                            if (confirm('Delete this package?')) deletePackageMutation.mutate(p.id);
+                          }}
+                        >
+                          Delete
+                        </Button>
+                      </div>
                     </div>
-                    <div className="space-y-1 text-sm mb-4">
-                      <div className="flex justify-between"><span className="text-slate-500">Price:</span> <span className="text-white">${p.price}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">GC:</span> <span className="text-yellow-500">{p.gc_amount.toLocaleString()}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-500">SC:</span> <span className="text-emerald-500">{p.sc_amount}</span></div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button 
-                        size="sm" 
-                        variant="outline" 
-                        className="flex-1 text-xs"
-                        onClick={() => { setEditingPackage(p); setIsEditingPackage(true); }}
-                      >
-                        Edit
-                      </Button>
-                      <Button 
-                        size="sm" 
-                        className="text-xs bg-red-500/10 text-red-500 hover:bg-red-500/20 border-red-500/20"
-                        onClick={() => {
-                          if (confirm('Delete this package?')) deletePackageMutation.mutate(p.id);
-                        }}
-                      >
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-                <div 
-                  className="p-4 bg-slate-900/50 rounded-xl border border-dashed border-white/10 flex items-center justify-center cursor-pointer hover:bg-slate-900 transition-colors min-h-[180px]"
+                  );
+                })}
+                <div
+                  className="p-6 bg-slate-800/30 rounded-xl border-2 border-dashed border-white/10 hover:border-emerald-500/50 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-800/50 transition-all min-h-[200px]"
                   onClick={() => { setEditingPackage({}); setIsEditingPackage(true); }}
                 >
-                  <span className="text-sm font-bold text-slate-500">+ Add New Package</span>
+                  <Plus className="w-8 h-8 text-emerald-500/60 mb-2" />
+                  <span className="text-sm font-bold text-slate-400">Add New Package</span>
                 </div>
               </div>
             )}

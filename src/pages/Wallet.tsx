@@ -259,53 +259,66 @@ export default function Wallet() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {packagesData?.packages?.map((pack: any) => (
-            <Card 
-              key={pack.id} 
-              className={cn(
-                "relative flex flex-col group hover:border-blue-500/30 transition-all cursor-pointer",
-                selectedPack === pack.id && "ring-2 ring-blue-500 border-blue-500 bg-blue-500/5",
-                pack.is_featured && "border-blue-500/50 bg-blue-500/5"
-              )}
-              onClick={() => setSelectedPack(pack.id)}
-            >
-              {pack.is_featured === 1 && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-blue-600 text-white text-[10px] font-black uppercase tracking-tighter rounded-full shadow-lg">
-                  Most Popular
-                </div>
-              )}
-              <CardContent className="p-6 flex-1 flex flex-col">
-                <h3 className="text-xl font-black text-white mb-4">{pack.name}</h3>
-                <div className="space-y-3 mb-8">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm text-slate-300 font-bold">{pack.gc_amount.toLocaleString()} Gold Coins</span>
+          {packagesData?.packages?.map((pack: any) => {
+            const scBonus = pack.gc_amount;
+            const totalSC = pack.sc_amount + scBonus;
+            return (
+              <Card
+                key={pack.id}
+                className={cn(
+                  "relative flex flex-col group hover:border-blue-500/30 transition-all cursor-pointer",
+                  selectedPack === pack.id && "ring-2 ring-blue-500 border-blue-500 bg-blue-500/5",
+                  pack.is_featured && "border-blue-500/50 bg-blue-500/5"
+                )}
+                onClick={() => setSelectedPack(pack.id)}
+              >
+                {pack.is_featured === 1 && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-blue-600 text-white text-[10px] font-black uppercase tracking-tighter rounded-full shadow-lg">
+                    Most Popular
                   </div>
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                    <span className="text-sm text-emerald-400 font-black">FREE {pack.sc_amount} Sweeps Coins</span>
+                )}
+                <CardContent className="p-6 flex-1 flex flex-col">
+                  <h3 className="text-xl font-black text-white mb-4">{pack.name}</h3>
+                  <div className="space-y-3 mb-8">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-yellow-500" />
+                      <span className="text-sm text-slate-300 font-bold">{pack.gc_amount.toLocaleString()} Gold Coins</span>
+                    </div>
+                    {pack.sc_amount > 0 && (
+                      <div className="flex items-center gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                        <span className="text-sm text-emerald-400 font-bold">{pack.sc_amount} Sweeps Coins</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2 p-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
+                      <Zap className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                      <span className="text-sm text-emerald-300 font-black">+{scBonus} FREE SC Bonus</span>
+                    </div>
                   </div>
-                </div>
-                <div className="mt-auto">
-                  <div className="text-2xl font-black text-white mb-4">${pack.price}</div>
-                  {selectedPack === pack.id ? (
-                    <Button 
-                      className="w-full" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        purchaseMutation.mutate();
-                      }}
-                      disabled={purchaseMutation.isPending}
-                    >
-                      {purchaseMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : `Pay with ${paymentMethod === 'cashapp' ? 'CashApp' : 'Google Pay'}`}
-                    </Button>
-                  ) : (
-                    <Button className="w-full" variant="outline">Select</Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                  <div className="space-y-1 text-xs text-slate-500 mb-8 px-2 py-1 bg-slate-900/50 rounded">
+                    <div>Total: {totalSC} Sweeps Coins value</div>
+                  </div>
+                  <div className="mt-auto">
+                    <div className="text-2xl font-black text-white mb-4">${pack.price}</div>
+                    {selectedPack === pack.id ? (
+                      <Button
+                        className="w-full"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          purchaseMutation.mutate();
+                        }}
+                        disabled={purchaseMutation.isPending}
+                      >
+                        {purchaseMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : `Pay with ${paymentMethod === 'cashapp' ? 'CashApp' : 'Google Pay'}`}
+                      </Button>
+                    ) : (
+                      <Button className="w-full" variant="outline">Select</Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </section>
 

@@ -1330,13 +1330,21 @@ app.post('/api/store/purchase', authenticate, (req: any, res) => {
     }
 
     const transaction = db.transaction(() => {
-      // Update player balance
-      db.prepare('UPDATE players SET gc_balance = gc_balance + ?, sc_balance = sc_balance + ? WHERE id = ?')
-        .run(pack.gc_amount, pack.sc_amount, req.user.id);
+      // Calculate SC bonus (free SC equal to GC purchased)
+      const scBonus = pack.gc_amount;
+      const totalScCredit = pack.sc_amount + scBonus;
 
-      // Log transaction with payment details
+      // Update player balance with GC and SC (includes bonus)
+      db.prepare('UPDATE players SET gc_balance = gc_balance + ?, sc_balance = sc_balance + ? WHERE id = ?')
+        .run(pack.gc_amount, totalScCredit, req.user.id);
+
+      // Log main purchase transaction
       db.prepare('INSERT INTO wallet_transactions (player_id, type, gc_amount, sc_amount, description) VALUES (?, ?, ?, ?, ?)')
         .run(req.user.id, 'purchase', pack.gc_amount, pack.sc_amount, `${pack.name} (${paymentMethod}) - TXN: ${transactionId}`);
+
+      // Log SC bonus transaction
+      db.prepare('INSERT INTO wallet_transactions (player_id, type, gc_amount, sc_amount, description) VALUES (?, ?, ?, ?, ?)')
+        .run(req.user.id, 'bonus', 0, scBonus, `FREE SC Bonus: Matched purchase of ${pack.gc_amount} GC`);
     });
 
     transaction();
@@ -1350,8 +1358,9 @@ app.post('/api/store/purchase', authenticate, (req: any, res) => {
     });
 
     // Add notification for admin
+    const scBonus = pack.gc_amount;
     db.prepare('INSERT INTO admin_notifications (type, title, content) VALUES (?, ?, ?)')
-      .run('purchase', `Purchase: ${pack.name}`, `Player #${req.user.id} purchased ${pack.name} for $${pack.price} via ${paymentMethod}. Transaction: ${transactionId}`);
+      .run('purchase', `Purchase: ${pack.name}`, `Player #${req.user.id} purchased ${pack.name} for $${pack.price} via ${paymentMethod}. Received: ${pack.gc_amount} GC + ${pack.sc_amount} SC + ${scBonus} FREE SC Bonus. Transaction: ${transactionId}`);
 
     res.json({ success: true, balances: user, transactionId });
   } catch (error: any) {
