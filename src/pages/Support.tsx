@@ -49,14 +49,24 @@ export default function Support() {
   const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setContactStatus('loading');
-    
+
     try {
-      // Simulate sending message to support
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      // Send support request to backend
+      const response = await fetch('/api/support/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(contactForm)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to send message: ${response.statusText}`);
+      }
+
       setContactStatus('success');
       setContactForm({ email: '', subject: '', message: '' });
       setTimeout(() => setContactStatus('idle'), 3000);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Support form error:', error);
       setContactStatus('error');
       setTimeout(() => setContactStatus('idle'), 3000);
     }

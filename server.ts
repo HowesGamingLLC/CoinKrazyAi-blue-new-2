@@ -2860,6 +2860,92 @@ app.post('/api/user/social/disconnect', authenticate, (req: any, res) => {
   }
 });
 
+// Support Contact Endpoint
+app.post('/api/support/contact', (req: any, res) => {
+  const { email, subject, message } = req.body;
+
+  try {
+    // Validate input
+    const validation = validateInput(req.body, {
+      email: { required: true, type: 'email' },
+      subject: { required: true, type: 'string', minLength: 5, maxLength: 100 },
+      message: { required: true, type: 'string', minLength: 10, maxLength: 2000 }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
+    // Log support request to database (create a simple notification)
+    db.prepare('INSERT INTO admin_notifications (type, title, content) VALUES (?, ?, ?)')
+      .run('support_request', `Support Request from ${email}`, `Subject: ${subject}\n\nMessage: ${message}`);
+
+    // In production, you would also:
+    // - Send an email to support@coinkrazy.com
+    // - Create a support ticket in your ticketing system
+    // - Reply with a confirmation email to the user
+
+    res.json({ success: true, message: 'Support request submitted. We\'ll get back to you within 24 hours.' });
+  } catch (error: any) {
+    console.error('Support contact error:', error);
+    res.status(500).json({ error: 'Error submitting support request' });
+  }
+});
+
+// AI Chat Endpoint (Server-side proxy for security)
+app.post('/api/ai/chat', authenticate, async (req: any, res) => {
+  const { message } = req.body;
+
+  try {
+    // Validate input
+    const validation = validateInput(req.body, {
+      message: { required: true, type: 'string', minLength: 1, maxLength: 1000 }
+    });
+
+    if (!validation.valid) {
+      return res.status(400).json({ error: 'Validation failed', details: validation.errors });
+    }
+
+    if (!ai) {
+      return res.status(503).json({ error: 'AI service is currently unavailable' });
+    }
+
+    // Get user info for context
+    const user = db.prepare('SELECT id, username, gc_balance, sc_balance FROM players WHERE id = ?').get(req.user.id) as any;
+
+    // Call AI with secure API key (server-side)
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: message,
+      config: {
+        systemInstruction: `You are LuckyAi, the friendly and helpful AI General Manager of CoinKrazy AI.
+
+Current player info:
+- Username: ${user.username}
+- GC Balance: ${user.gc_balance}
+- SC Balance: ${user.sc_balance}
+
+Be enthusiastic, use gambling/gaming metaphors occasionally, and always be professional.
+Keep responses concise and helpful. Focus on game tips, account help, and general gaming advice.
+If asked about sensitive data, decline politely and suggest contacting support.
+Max response length: 500 characters.`
+      }
+    });
+
+    // Log the interaction for moderation
+    db.prepare('INSERT INTO ai_logs (employee_id, type, content, status) VALUES (?, ?, ?, ?)')
+      .run(1, 'chat', `User: ${message}`, 'approved');
+
+    res.json({
+      response: response.text || 'I encountered an error processing your message. Please try again.',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error: any) {
+    console.error('AI chat error:', error);
+    res.status(500).json({ error: 'Error processing your message' });
+  }
+});
+
 // Bonus Endpoints
 app.get('/api/admin/bonuses', authenticate, isAdmin, (req, res) => {
   try {

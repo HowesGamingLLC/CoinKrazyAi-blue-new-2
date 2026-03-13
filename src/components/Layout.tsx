@@ -37,6 +37,7 @@ export default function Layout() {
     { icon: Layers, label: 'Pull Tabs', path: '/games/pull-tabs' },
     { icon: Trophy, label: 'Leaderboards', path: '/leaderboards' },
     { icon: Medal, label: 'Tournaments', path: '/tournaments' },
+    { icon: Medal, label: 'Achievements', path: '/achievements' },
     { icon: Users, label: 'Community', path: '/community' },
     { icon: Wallet, label: 'Wallet', path: '/wallet' },
     { icon: User, label: 'Profile', path: '/profile' },

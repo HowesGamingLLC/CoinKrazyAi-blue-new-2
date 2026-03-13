@@ -34,6 +34,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { cn } from '../lib/utils';
 import FriendsAndInvites from '../components/FriendsAndInvites';
 import { PlayerBonuses } from '../components/PlayerBonuses';
+import { RecentActivity } from '../components/RecentActivity';
+import { KYCUpload } from '../components/KYCUpload';
 
 export default function Profile() {
   const { user, refreshUser } = useAuth();
@@ -272,32 +274,7 @@ export default function Profile() {
               </div>
             </Card>
 
-            {/* Recent Activity Placeholder */}
-            <Card className="p-6">
-              <div className="flex items-center gap-3 mb-6">
-                <History className="w-5 h-5 text-purple-500" />
-                <h3 className="font-bold text-white">Recent Sessions</h3>
-              </div>
-              <div className="space-y-4">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="flex items-center justify-between p-4 bg-slate-800/30 rounded-2xl border border-white/5">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center">
-                        <Zap className="w-5 h-5 text-slate-500" />
-                      </div>
-                      <div>
-                        <div className="text-sm font-bold text-white">Krazy Slots Session</div>
-                        <div className="text-[10px] text-slate-500">2 hours ago</div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-bold text-emerald-500">+450.00 GC</div>
-                      <div className="text-[10px] text-slate-500">12 spins</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </Card>
+            <RecentActivity />
           </div>
         </div>
       )}
@@ -346,13 +323,10 @@ export default function Profile() {
               </p>
 
               {user.kyc_status === 'unverified' && (
-                <Button 
-                  className="w-full" 
-                  onClick={() => kycMutation.mutate()}
-                  disabled={kycMutation.isPending}
-                >
-                  {kycMutation.isPending ? 'Processing...' : 'Start Verification'}
-                </Button>
+                <div className="mt-6 pt-6 border-t border-white/5">
+                  <h4 className="text-sm font-bold text-white mb-4">Upload Documents</h4>
+                  <KYCUpload onSuccess={() => refreshUser()} />
+                </div>
               )}
             </div>
 

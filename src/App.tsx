@@ -15,8 +15,10 @@ import CommunityPage from './pages/CommunityPage';
 import ScratchTicketsPage from './pages/ScratchTicketsPage';
 import PullTabsPage from './pages/PullTabsPage';
 import Support from './pages/Support';
+import Achievements from './pages/Achievements';
 
 import { AuthProvider } from './contexts/AuthContext';
+import { ToastProvider } from './components/Toast';
 import Login from './pages/Login';
 import Register from './pages/Register';
 
@@ -25,8 +27,9 @@ const queryClient = new QueryClient();
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <BrowserRouter>
+      <ToastProvider>
+        <AuthProvider>
+          <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
@@ -43,11 +46,13 @@ export default function App() {
               <Route path="games/scratch-tickets" element={<ScratchTicketsPage />} />
               <Route path="games/pull-tabs" element={<PullTabsPage />} />
               <Route path="admin" element={<AdminPanel />} />
+              <Route path="achievements" element={<Achievements />} />
               <Route path="support" element={<Support />} />
             </Route>
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
+        </AuthProvider>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

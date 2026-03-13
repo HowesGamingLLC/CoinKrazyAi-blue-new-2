@@ -1,7 +1,6 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MessageSquare, X, Send, Loader2, User, Bot, Sparkles } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { useAuth } from '../contexts/AuthContext';
@@ -15,10 +14,8 @@ export default function AIChatWidget() {
   const [isTyping, setIsTyping] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
-
   const handleSend = async () => {
-    if (!message.trim() || isTyping) return;
+    if (!message.trim() || isTyping || !user) return;
 
     const userMessage = message.trim();
     setMessage('');
@@ -26,20 +23,19 @@ export default function AIChatWidget() {
     setIsTyping(true);
 
     try {
-      const chat = ai.chats.create({
-        model: "gemini-3-flash-preview",
-        config: {
-          systemInstruction: `You are LuckyAI, the friendly and helpful AI General Manager of CoinKrazy AI. 
-          Your goal is to assist players with game recommendations, platform navigation, and general support.
-          Be enthusiastic, use gambling/gaming metaphors occasionally, and always be professional.
-          Player info: ${user ? `Username: ${user.username}, GC: ${user.gc_balance}, SC: ${user.sc_balance}` : 'Guest player'}.
-          If they ask about games, recommend Krazy Slots or Neon Dice.
-          If they ask about rewards, explain the dual currency system (GC for fun, SC for redemptions).`,
-        }
+      // Call server-side API endpoint instead of direct GoogleGenAI
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: userMessage })
       });
 
-      const response = await chat.sendMessage({ message: userMessage });
-      setChatHistory(prev => [...prev, { role: 'model', text: response.text || "I'm sorry, I couldn't process that." }]);
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setChatHistory(prev => [...prev, { role: 'model', text: data.response || "I'm sorry, I couldn't process that." }]);
     } catch (error) {
       console.error('AI Error:', error);
       setChatHistory(prev => [...prev, { role: 'model', text: "Oops! My circuits are a bit fuzzy right now. Try again in a moment!" }]);
