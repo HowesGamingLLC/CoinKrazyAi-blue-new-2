@@ -95,9 +95,10 @@ export const Community: React.FC<{ user: any }> = ({ user }) => {
     try {
       const response = await fetch('/api/community/chat/history');
       const data = await response.json();
-      setChatMessages(data.messages);
+      setChatMessages(data.messages || []);
     } catch (error) {
       console.error('Error fetching chat history:', error);
+      setChatMessages([]);
     }
   };
 
@@ -105,9 +106,10 @@ export const Community: React.FC<{ user: any }> = ({ user }) => {
     try {
       const response = await fetch('/api/community/boards');
       const data = await response.json();
-      setBoards(data.boards);
+      setBoards(data.boards || []);
     } catch (error) {
       console.error('Error fetching boards:', error);
+      setBoards([]);
     } finally {
       setLoading(false);
     }
@@ -118,11 +120,12 @@ export const Community: React.FC<{ user: any }> = ({ user }) => {
     try {
       const response = await fetch(`/api/community/boards/${slug}`);
       const data = await response.json();
-      setTopics(data.topics);
+      setTopics(data.topics || []);
       setSelectedBoard(data.board);
       setView('topics');
     } catch (error) {
       console.error('Error fetching topics:', error);
+      setTopics([]);
     } finally {
       setLoading(false);
     }
@@ -134,10 +137,11 @@ export const Community: React.FC<{ user: any }> = ({ user }) => {
       const response = await fetch(`/api/community/topics/${topicId}`);
       const data = await response.json();
       setSelectedTopic(data.topic);
-      setPosts(data.posts);
+      setPosts(data.posts || []);
       setView('topic');
     } catch (error) {
       console.error('Error fetching topic details:', error);
+      setPosts([]);
     } finally {
       setLoading(false);
     }
@@ -227,7 +231,7 @@ export const Community: React.FC<{ user: any }> = ({ user }) => {
                 </h2>
               </div>
               <div className="grid grid-cols-1 gap-4">
-                {boards.map((board) => (
+                {(boards || []).map((board) => (
                   <button
                     key={board.id}
                     onClick={() => fetchTopics(board.slug)}
@@ -310,7 +314,7 @@ export const Community: React.FC<{ user: any }> = ({ user }) => {
               )}
 
               <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl overflow-hidden">
-                {topics.map((topic) => (
+                {(topics || []).map((topic) => (
                   <button
                     key={topic.id}
                     onClick={() => fetchTopicDetails(topic.id)}
@@ -369,7 +373,7 @@ export const Community: React.FC<{ user: any }> = ({ user }) => {
               </div>
 
               <div className="space-y-4">
-                {posts.map((post, index) => (
+                {(posts || []).map((post, index) => (
                   <div key={post.id} className={`bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 ${index === 0 ? 'border-emerald-500/30' : ''}`}>
                     <div className="flex items-start gap-4">
                       <img src={post.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${post.username}`} className="w-12 h-12 rounded-full border border-zinc-700" alt="" />
@@ -443,7 +447,7 @@ export const Community: React.FC<{ user: any }> = ({ user }) => {
           </div>
           
           <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
-            {chatMessages.map((msg) => (
+            {(chatMessages || []).map((msg) => (
               <div key={msg.id} className="flex gap-3">
                 <img src={msg.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.username}`} className="w-8 h-8 rounded-full border border-zinc-700 shrink-0" alt="" />
                 <div className="flex-1 min-w-0">
